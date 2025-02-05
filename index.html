@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UE | Attendify</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <!-- Bootswatch Simplex Theme -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootswatch/4.5.2/simplex/bootstrap.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f4f4f9;
+        }
+
+        .login-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 300px;
+        }
+
+        .login-container h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .login-container input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .login-container button {
+            width: 100%;
+            padding: 10px;
+            background-color: #A40000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .login-container button:hover {
+            background-color: #7a0000;
+        }
+
+        #redirectionButton {
+            margin-top: 20px;
+            display: none;
+            background-color: #A40000;
+            color: white;
+        }
+
+        #redirectionButton:hover {
+            background-color: #7a0000;
+        }
+
+        .navbar {
+            background-color: #A40000 !important;
+        }
+
+        .alert-success {
+            border-left: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <a class="navbar-brand" href="#">UE | Attendify</a>
+    </nav>
+
+    <!-- Body -->
+    <div class="container mt-4 d-flex justify-content-center">
+        <div class="card col-md-4" id="login-section">
+            <div class="card-body">
+                <h3>Login</h3>
+                <h4><b>ICT3 12-1</b></h4>
+                <div class="mt-5">
+                    <form id="attendanceForm">
+                        <div class="form-floating mb-3">
+                            <input type="text" class="form-control" id="studentId" placeholder="202400000000" required>
+                            <label for="studentId">Student/Teacher ID</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="password" class="form-control" id="floatingPassword" placeholder="Password"
+                                autocomplete="off" required>
+                            <label for="floatingPassword">Password</label>
+                        </div>
+                        <div class="form-floating mt-3">
+                            <input type="checkbox" id="agreementCheckbox" required>
+                            <label for="agreementCheckbox" class="text-justify font-italic">
+                                I confirm my physical attendance on this class and agree to the policy and guidelines of
+                                the UE Attendify System
+                            </label>
+                        </div>
+                        <div class="d-grid mt-3">
+                            <button class="btn btn-lg btn-primary" type="submit">Submit</button>
+                        </div>
+                        <span id="message"></span> <!-- Add message element for success or error -->
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="card col-md-4" id="success-section" style="display: none;">
+            <div class="card-body">
+                <div class="alert alert-success">
+                    <h3><strong>Login Success</strong></h3>
+                </div>
+                <h4><b>ICT3 12-1</b></h4>
+                <div class="mt-4">
+                    <h4>Date & Time</h4>
+                    <h5><b><span id="success-field-dateTime">&nbsp;</span></b></h5>
+                    <h4>Student/Teacher ID</h4>
+                    <h5><b><span id="success-field-studentId">&nbsp;</span></b></h5>
+                    <h4>Name</h4>
+                    <h5><b><span id="success-field-name">&nbsp;</span></b></h5>
+                    <button id="redirectionButton" class="btn btn-success">Go to Attendance Dashboard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
+        import { getDatabase, ref, get, push } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA0hTRuEgjrP9YQ4LwkHcSUf7xkdl9lBgI",
+            authDomain: "attendify12-ai.firebaseapp.com",
+            databaseURL: "https://attendify12-ai-default-rtdb.asia-southeast1.firebasedatabase.app/",
+            projectId: "attendify12-ai",
+            storageBucket: "attendify12-ai.firebasestorage.app",
+            messagingSenderId: "374044642888",
+            appId: "1:374044642888:web:44706986d500af43a0927d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        function login(event) {
+            event.preventDefault();
+
+            let studentId = document.getElementById('studentId').value.trim().replace(/-/g, "/");  // Replace "-" with "/"
+            let password = document.getElementById('floatingPassword').value.trim();
+
+            if (password.includes("-")) {
+                document.getElementById('message').textContent = 'Incorrect password';
+                document.getElementById('message').style.color = 'red';
+                return;
+            }
+
+            if (!studentId || !password) {
+                document.getElementById('message').textContent = 'Please fill in all fields.';
+                document.getElementById('message').style.color = 'red';
+                return;
+            }
+
+            const isTeacher = studentId.startsWith("T"); // Detect if the ID belongs to a teacher
+            const refPath = isTeacher ? `Teachers/${studentId}` : `Students/${studentId}`;
+            const userRef = ref(database, refPath);
+
+            get(userRef).then(snapshot => {
+                if (snapshot.exists()) {
+                    const userData = snapshot.val();
+                    const storedPassword = userData.password.replace(/-/g, "/");
+
+                    if (storedPassword === password) {
+                        // Log attendance for students
+                        if (!isTeacher) {
+                            const loginsRef = ref(database, 'logins/');
+                            push(loginsRef, {
+                                id: userData[isTeacher ? 'teacherId' : 'studentId'],
+                                name: userData.name,
+                                timestamp: new Date().toISOString(),
+                                role: isTeacher ? "Teacher" : "Student"
+                            });
+                        }
+
+                        showSuccessMessage(userData[isTeacher ? 'teacherId' : 'studentId'], userData.name, isTeacher);
+                    } else {
+                        showErrorMessage('Incorrect password.');
+                    }
+                } else {
+                    showErrorMessage(`${isTeacher ? "Teacher" : "Student"} ID not found.`);
+                }
+            }).catch(error => {
+                showErrorMessage('An error occurred. Please try again.');
+                console.error(error);
+            });
+        }
+
+        function showSuccessMessage(id, name, isTeacher) {
+            document.getElementById('success-section').style.display = 'block';
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('success-field-studentId').textContent = id;
+            document.getElementById('success-field-name').textContent = name;
+            document.getElementById('success-field-dateTime').textContent = new Date().toLocaleString();
+
+            if (!isTeacher) {
+                document.getElementById('redirectionButton').style.display = 'block';
+            }
+
+            setTimeout(() => {
+                if (isTeacher) {
+                    window.location.href = "homepage.html"; // Redirect teacher to their page
+                }
+            }, 2000);
+        }
+
+        function showErrorMessage(message) {
+            document.getElementById('message').textContent = message || 'An error occurred. Please try again later.';
+            document.getElementById('message').style.color = 'red';
+        }
+
+        function redirectToAttendanceDashboard() {
+            window.location.href = "attendance.html"; // Redirect to attendance page for students
+        }
+
+        document.getElementById('attendanceForm').addEventListener('submit', login);
+        document.getElementById('redirectionButton').addEventListener('click', redirectToAttendanceDashboard);
+    </script>
+</body>
+
+</html>
