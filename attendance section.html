@@ -111,9 +111,17 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const classId = urlParams.get("classId");
+        const teacherId = urlParams.get("teacherId");
 
         let studentsData = [];
         let classTime;
+
+        if (!teacherId || !classId) {
+            alert("Missing teacher or class ID!");
+            console.error("No info found: teacherId or classId is missing.");
+        } else {
+            fetchClassDetails();
+        }
 
         async function fetchClassDetails() {
             if (!classId) {
@@ -123,7 +131,7 @@
 
             try {
                 console.log("Fetching class details...");
-                const classRef = ref(db, `classes/${classId}`);
+                const classRef = ref(db, `classes/${teacherId}/${classId}`);
                 const snapshot = await get(classRef);
 
                 if (snapshot.exists()) {
@@ -197,7 +205,7 @@
                 return;
             }
 
-            const classRef = ref(db, `classes/${classId}`);
+            const classRef = ref(db, `classes/${teacherId}/${classId}`);
 
             update(classRef, {
                 startTime: newStartTime,
@@ -231,50 +239,67 @@
         endTimeInput.addEventListener("input", showUpdateButton);
 
         async function markAbsentAfterEndTime() {
-            console.log("Checking for absent students after class ends...");
+    console.log("Checking for absent students after class ends...");
 
-            if (!classId) return;
+    if (!classId) return;
 
-            const classRef = ref(db, `classes/${classId}`);
-            const classSnapshot = await get(classRef);
+    const classRef = ref(db, `classes/${teacherId}/${classId}`);
+    const classSnapshot = await get(classRef);
 
-            if (classSnapshot.exists()) {
-                const classData = classSnapshot.val();
-                const endTime = classData.endTime;
+    if (classSnapshot.exists()) {
+        const classData = classSnapshot.val();
+        const startTime = classData.startTime; // Get the start time from class data
+        const endTime = classData.endTime; // Get the end time from class data
 
-                const today = new Date().toDateString();
-                const classEndDateTime = new Date(`${today} ${endTime}:00`);
-                const currentTime = new Date();
+        // Debugging the values of startTime and endTime
+        console.log("Class Data:", classData); // Full class data to inspect values
+        console.log("Start Time:", startTime);
+        console.log("End Time:", endTime);
 
-                if (currentTime > classEndDateTime) {
-                    console.log("Class has ended. Marking absent students...");
+        const today = new Date().toDateString();
+        const classStartDateTime = new Date(`${today} ${startTime}:00`); // Start time for today
+        const classEndDateTime = new Date(`${today} ${endTime}:00`); // End time for today
+        const currentTime = new Date();
 
-                    const attendanceRef = ref(db, `attendance/${classId}`);
-                    const attendanceSnapshot = await get(attendanceRef);
+        // Debugging the class start and end date-time calculations
+        console.log("Class Start DateTime:", classStartDateTime);
+        console.log("Class End DateTime:", classEndDateTime);
+        console.log("Current Time:", currentTime);
 
-                    if (attendanceSnapshot.exists()) {
-                        const attendanceData = attendanceSnapshot.val();
+        // Check if the current time is after class end time
+        if (currentTime > classEndDateTime) {
+            console.log("Class has ended. Marking absent students...");
 
-                        for (const studentId in attendanceData) {
-                            let studentStatus = attendanceData[studentId].status;
+            const attendanceRef = ref(db, `attendance/${classId}`);
+            const attendanceSnapshot = await get(attendanceRef);
 
-                            // Only mark students absent if they were never marked as Present or Late
-                            if (studentStatus === "-") {
-                                console.log(`Marking ${studentId} as Absent`);
+            if (attendanceSnapshot.exists()) {
+                const attendanceData = attendanceSnapshot.val();
 
-                                set(ref(db, `attendance/${classId}/${studentId}`), {
-                                    id: studentId,
-                                    status: "Absent",
-                                    timestamp: new Date().toISOString()
-                                });
-                            }
-                        }
+                for (const studentId in attendanceData) {
+                    let studentStatus = attendanceData[studentId].status;
+
+                    // Only mark students absent if they were never marked as Present or Late
+                    if (studentStatus === "-") {
+                        console.log(`Marking ${studentId} as Absent`);
+
+                        // Update the attendance status without overwriting other data
+                        update(ref(db, `attendance/${classId}/${studentId}`), {
+                            status: "Absent",
+                            timestamp: new Date().toISOString()
+                        });
                     }
-                } else {
-                    console.log("Class is still ongoing. No changes made.");
                 }
             }
+        } else if (currentTime < classStartDateTime) {
+            console.log("Class hasn't started yet. No changes made.");
+        } else {
+            console.log("Class is still ongoing. No changes made.");
         }
+    } else {
+        console.log("Class not found.");
+    }
+}
 
 
         // Listen for attendance status changes in real-time
