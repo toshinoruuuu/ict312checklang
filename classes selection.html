@@ -202,7 +202,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
-        import { getDatabase, ref, set, onChildAdded, onChildChanged, onChildRemoved, remove, get } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-database.js";
+        import { getDatabase, ref, set, onChildAdded, onChildChanged, onChildRemoved, remove, get, onValue } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyA0hTRuEgjrP9YQ4LwkHcSUf7xkdl9lBgI",
@@ -216,6 +216,7 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
+        const database = getDatabase(app);
         const importButton = document.getElementById("importClassBtn");
 
         // Prevent multiple event listeners
@@ -224,6 +225,13 @@
 
         function importClass() {
             importButton.disabled = true; // Disable button to prevent multiple clicks
+
+            const teacherID = localStorage.getItem("teacherID"); // Retrieve the logged-in teacher's ID
+            if (!teacherID) {
+                alert("No teacher ID found. Please log in.");
+                importButton.disabled = false;
+                return;
+            }
 
             const course = document.getElementById("course").value.trim();
             const section = document.getElementById("section").value.trim();
@@ -240,9 +248,10 @@
             }
 
             const classId = `${course}-${section}-${room}-${startTime}`.replace(/\s+/g, "-");
+            const classPath = `classes/${teacherID}/${classId}`;
 
             // Check if class already exists (Prevent duplicate imports)
-            get(ref(db, "classes/" + classId)).then((snapshot) => {
+            get(ref(db, classPath)).then((snapshot) => {
                 if (snapshot.exists()) {
                     alert("This class already exists. You can modify the existing class instead.");
                     importButton.disabled = false;
@@ -270,8 +279,8 @@
                         return;
                     }
 
-                    // Save to Firebase and prevent duplicate imports
-                    set(ref(db, "classes/" + classId), {
+                    // Save to Firebase under attendance/{teacherID}/{classId}
+                    set(ref(db, classPath), {
                         course,
                         section,
                         room,
@@ -280,7 +289,7 @@
                         gracePeriod,
                         students
                     }).then(() => {
-                        addClassButton(classId, course, section, room, startTime, endTime, gracePeriod);
+                        alert("Class imported successfully!");
                         clearInputFields();
                     }).catch(err => {
                         console.error("Error saving data:", err);
@@ -306,52 +315,31 @@
             document.getElementById("classListFile").value = '';
         }
 
-        function addClassButton(classId, course, section, room, startTime, endTime, gracePeriod) {
-            if (document.getElementById(`btn-${classId}`)) return;
 
-            const btnContainer = document.createElement("div");
-            btnContainer.className = "d-flex justify-content-between align-items-center";
+        function openEditModal(teacherId, classId, course, section, room, startTime, endTime, gracePeriod) {
+            console.log("Opening edit modal for:", { teacherId, classId });
 
-            const btn = document.createElement("button");
-            btn.id = `btn-${classId}`;
-            btn.innerText = `${course} - ${section} - ${room} (From ${startTime} to ${endTime})`;
-            btn.className = "btn class-button m-1";
-            btn.onclick = () => {
-                toggleClassDetails(classId, course, section, room, startTime, endTime, gracePeriod);
-            };
-
-            const editBtn = document.createElement("button");
-            editBtn.innerHTML = '<i class="fas fa-ellipsis-h"></i>'; // Three-dot icon
-            editBtn.className = "edit-button";
-            editBtn.id = `btn-${classId}`; // Assign a unique ID for removal
-
-            editBtn.onclick = () => {
-                openEditModal(classId, course, section, room, startTime, endTime, gracePeriod);
-            };
-
-
-            btnContainer.appendChild(btn);
-            btnContainer.appendChild(editBtn);
-            document.getElementById("classButtons").appendChild(btnContainer);
-        }
-
-        function openEditModal(classId, course, section, room, startTime, endTime, gracePeriod) {
-            // Populate the modal fields
-            document.getElementById("editCourse").value = course;
-            document.getElementById("editSection").value = section;
-            document.getElementById("editRoom").value = room;
-            document.getElementById("editStartTime").value = startTime;
-            document.getElementById("editEndTime").value = endTime;
-            document.getElementById("editGracePeriod").value = gracePeriod;
+            document.getElementById("removeClassBtn").setAttribute("data-teacher-id", teacherId);
             document.getElementById("removeClassBtn").setAttribute("data-class-id", classId);
 
-            // Show the modal
-            $('#editClassModal').modal('show');
+            $('#editClassModal').modal('show'); // Show modal
 
-            // Save changes event
-            document.getElementById("saveChangesBtn").onclick = function () {
-                saveClass(classId);
-            };
+        // Populate the modal fields
+        document.getElementById("editCourse").value = course;
+        document.getElementById("editSection").value = section;
+        document.getElementById("editRoom").value = room;
+        document.getElementById("editStartTime").value = startTime;
+        document.getElementById("editEndTime").value = endTime;
+        document.getElementById("editGracePeriod").value = gracePeriod;
+        document.getElementById("removeClassBtn").setAttribute("data-class-id", classId);
+
+        // Show the modal
+        $('#editClassModal').modal('show');
+
+        // Save changes event
+        document.getElementById("saveChangesBtn").onclick = function () {
+            saveClass(classId);
+        };
         }
 
         function saveClass(classId) {
@@ -378,37 +366,70 @@
             });
         }
 
-        function removeClass(classId) {
+        function removeClass(teacherID, classId) {
             if (confirm("Are you sure you want to remove this class?")) {
-                const classRef = ref(db, "classes/" + classId);
-                remove(classRef).then(() => {
-                    // Remove the edit button (three dots)
-                    const btnToRemove = document.getElementById(`btn-${classId}`);
-                    if (btnToRemove) {
-                        btnToRemove.remove();
+                console.log("Attempting to remove class:", classId, "for teacher:", teacherID);
+
+                if (!teacherID || !classId) {
+                    console.error("Invalid teacherID or classId. Cannot delete class.");
+                    return;
+                }
+
+                const classRef = ref(db, `classes/${teacherID}/${classId}`);
+                console.log("Fetching from Firebase path:", `classes/${teacherID}/${classId}`);
+
+                get(classRef).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        console.log("Class Data Found:", snapshot.val());
+
+                        remove(classRef)
+                            .then(() => {
+                                console.log(`Class ${classId} removed from database.`);
+                                alert("Class successfully removed.");
+
+                                // Remove from UI
+                                const btnContainer = document.getElementById(`container-${classId}`);
+                                if (btnContainer) {
+                                    btnContainer.remove();
+                                } else {
+                                    console.warn(`Container with ID container-${classId} not found.`);
+                                }
+                            })
+                            .catch(err => {
+                                console.error("Error removing class:", err);
+                                alert("Failed to remove class. Please try again.");
+                            });
+
                     } else {
-                        console.warn(`Button with ID btn-${classId} not found.`);
+                        console.warn("No class found at this location.");
+                        alert("Class not found!");
                     }
-                    $('#editClassModal').modal('hide'); // Close modal
-                }).catch(err => {
-                    console.error("Error removing class:", err);
+                }).catch((error) => {
+                    console.error("Error fetching class data:", error);
                 });
             }
         }
 
 
-        // Add the event listener AFTER defining the function
+
         document.addEventListener("DOMContentLoaded", function () {
             document.getElementById("removeClassBtn").addEventListener("click", function () {
+                const teacherId = this.getAttribute("data-teacher-id");
                 const classId = this.getAttribute("data-class-id");
-                if (classId) {
+
+                console.log("Attempting to remove class with:", { teacherId, classId }); // ✅ Debugging log
+
+                if (teacherId && classId) {
                     if (confirm("Are you sure you want to remove this class?")) {
-                        removeClass(classId); // Calls the function
-                        $('#editClassModal').modal('hide'); // Closes modal
+                        removeClass(teacherId, classId);
+                        $('#editClassModal').modal('hide');
                     }
+                } else {
+                    console.error("❌ Missing teacherId or classId. Cannot remove class.");
                 }
             });
         });
+
 
         // Change the toggle symbol based on the collapse state
         $('#importClassForm').on('show.bs.collapse', function () {
@@ -430,25 +451,121 @@
 
 
         window.onload = function () {
-            const classButtonsRef = ref(db, "classes");
+            const teacherID = localStorage.getItem("teacherID");
+
+            if (!teacherID) {
+                console.log("No teacher ID found. Redirecting to login.");
+                window.location.href = "login.html"; // Redirect if not logged in
+                return;
+            }
+
+            const attendanceRef = ref(database, `classes/${teacherID}`);
             const classButtonsContainer = document.getElementById("classButtons");
-            classButtonsContainer.innerHTML = "";
 
-            onChildAdded(classButtonsRef, (snapshot) => {
-                const classData = snapshot.val();
-                addClassButton(snapshot.key, classData.course, classData.section, classData.room, classData.startTime, classData.endTime, classData.gracePeriod);
-            });
+            classButtonsContainer.innerHTML = ""; // Clear previous buttons
 
-            // Listen for class removals and update the UI immediately
-            onChildRemoved(ref(db, "classes"), (snapshot) => {
-                const classId = snapshot.key;
-                const btnToRemove = document.getElementById(`btn-${classId}`);
-                if (btnToRemove) {
-                    btnToRemove.remove();
+            onValue(attendanceRef, (snapshot) => {
+                classButtonsContainer.innerHTML = ""; // Clear buttons to avoid duplication
+
+                if (snapshot.exists()) {
+                    const classes = snapshot.val();
+                    console.log("Loaded classes:", classes); // Debugging step
+
+                    Object.keys(classes).forEach(classID => {
+                        const classData = classes[classID];
+
+                        if (!classData || !classData.course) {
+                            console.warn(`Missing data for class: ${classID}`, classData);
+                            return; // Skip this class if data is missing
+                        }
+
+                        addClassButton(
+                            teacherID,
+                            classID,
+                            classData.course || "Unknown Course",
+                            classData.section || "Unknown Section",
+                            classData.room || "Unknown Room",
+                            classData.startTime || "Unknown Start Time",
+                            classData.endTime || "Unknown End Time",
+                            classData.gracePeriod || "N/A"
+                        );
+                    });
+                } else {
+                    console.log("No classes found for this teacher.");
+                    classButtonsContainer.innerHTML = "<p>No classes found.</p>";
                 }
+            }, (error) => {
+                console.error("Error fetching classes:", error);
             });
 
         };
+
+        function loadClasses() {
+            const dbRef = ref(db, "classes"); // Load all classes
+
+            get(dbRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    console.log("Loaded classes:", snapshot.val()); // Debugging log
+
+                    const classesData = snapshot.val();
+
+                    // ✅ Correctly extract teacherId from the outer object
+                    Object.keys(classesData).forEach((teacherId) => {
+                        Object.keys(classesData[teacherId]).forEach((classId) => {
+                            const classInfo = classesData[teacherId][classId];
+
+                            // ✅ Ensure teacherId is correctly passed
+                            console.log("Adding button for class:", { teacherId, classId });
+
+                            addClassButton(teacherId, classId, classInfo.course, classInfo.section, classInfo.room, classInfo.startTime, classInfo.endTime, classInfo.gracePeriod);
+                        });
+                    });
+                } else {
+                    console.log("No classes found.");
+                }
+            }).catch((error) => {
+                console.error("Error fetching classes:", error);
+            });
+        }
+
+
+        function addClassButton(teacherId, classId, course, section, room, startTime, endTime, gracePeriod) {
+            if (document.getElementById(`btn-${teacherId}-${classId}`)) return;
+
+            const btnContainer = document.createElement("div");
+            btnContainer.className = "d-flex justify-content-between align-items-center";
+
+            const btn = document.createElement("button");
+            btn.id = `btn-${teacherId}-${classId}`;
+            btn.innerText = `${course} - ${section} - ${room} (From ${startTime} to ${endTime})`;
+            btn.className = "btn class-button m-1";
+
+            // ✅ Ensure teacherId and classId are correctly assigned
+            console.log("Adding button for class:", { teacherId, classId }); // Debugging log
+
+            const encodedTeacherId = encodeURIComponent(teacherId);
+            const encodedClassId = encodeURIComponent(classId);
+
+            console.log(`Encoded URL: attendance section.html?teacherId=${encodedTeacherId}&classId=${encodedClassId}`); // Debugging log
+
+            btn.onclick = () => {
+                window.location.href = `attendance section.html?teacherId=${encodedTeacherId}&classId=${encodedClassId}`;
+            };
+
+            const editBtn = document.createElement("button");
+            editBtn.innerHTML = '<i class="fas fa-ellipsis-h"></i>'; // Three-dot icon
+            editBtn.className = "edit-button";
+            editBtn.id = `edit-btn-${teacherId}-${classId}`;
+
+            editBtn.onclick = () => {
+                openEditModal(teacherId, classId, course, section, room, startTime, endTime, gracePeriod);
+            };
+
+            btnContainer.appendChild(btn);
+            btnContainer.appendChild(editBtn);
+            document.getElementById("classButtons").appendChild(btnContainer);
+        }
+
     </script>
 </body> <!-- Place it just before this closing tag -->
 
